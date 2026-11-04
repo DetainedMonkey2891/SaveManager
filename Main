@@ -1,18 +1,7 @@
 local httpService = game:GetService('HttpService')
 
-local CopyToClipboard = toclipboard or clipboard or setclipboard or nil
-
-if type(CopyToClipboard) == 'table' then
-    CopyToClipboard = Clipboard.set
-end
-
-if not CopyToClipboard then
-    warn('Your clipboard doesn\'t have a setclipboard equivalent, using print instead.')
-    CopyToClipboard = print
-end
-
 local SaveManager = {} do
-	SaveManager.Folder = getgenv().settings_folder or "AtlasSettings"
+	SaveManager.Folder = 'LinoriaLibSettings'
 	SaveManager.Ignore = {}
 	SaveManager.Parser = {
 		Toggle = {
@@ -135,9 +124,15 @@ local SaveManager = {} do
 
 		for _, option in next, decoded.objects do
 			if self.Parser[option.type] then
-				task.spawn(function() self.Parser[option.type].Load(option.idx, option) end) -- task.spawn() so the config loading wont get stuck.
+				-- Removed task.spawn to fix the UI not updating visually during load
+				pcall(function()
+					self.Parser[option.type].Load(option.idx, option)
+				end)
 			end
 		end
+
+		-- Wait for the UI elements to settle before finishing
+		task.wait()
 
 		return true
 	end
@@ -171,8 +166,6 @@ local SaveManager = {} do
 		for i = 1, #list do
 			local file = list[i]
 			if file:sub(-5) == '.json' then
-				-- i hate this but it has to be done ...
-
 				local pos = file:find('.json', 1, true)
 				local start = pos
 
@@ -209,16 +202,10 @@ local SaveManager = {} do
 	end
 
 
-	function SaveManager:BuildConfigSection(tab,disablecloudconfigs)
-		local TabBox = tab:AddRightTabbox() 
-
+	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, 'Must set SaveManager.Library')
 
-		if not isfile(self.Folder .. "/settings/README.txt") then 
-			writefile(self.Folder .. "/settings/README.txt","to load configs drag and drop JSON files here")
-		end
-
-		local section = TabBox:AddTab('Local Configs')
+		local section = tab:AddRightGroupbox('Configuration')
 
 		section:AddInput('SaveManager_ConfigName',    { Text = 'Config name' })
 		section:AddDropdown('SaveManager_ConfigList', { Text = 'Config list', Values = self:RefreshConfigList(), AllowNull = true })
@@ -263,25 +250,43 @@ local SaveManager = {} do
 			self.Library:Notify(string.format('Overwrote config %q', name))
 		end)
 
-
 		section:AddButton('Refresh list', function()
 			Options.SaveManager_ConfigList:SetValues(self:RefreshConfigList())
 			Options.SaveManager_ConfigList:SetValue(nil)
 		end)
 
-		section:AddButton('Set as autoload', function()
-			local name = Options.SaveManager_ConfigList.Value
-			writefile(self.Folder .. '/settings/autoload.txt', name)
-			SaveManager.AutoloadLabel:SetText('Current autoload config: ' .. name)
-			self.Library:Notify(string.format('Set %q to auto load', name))
-		end)
+		-- Autoload Config Toggle (Replaces the old button)
+		section:AddToggle('SaveManager_Autoload', {
+			Text = 'Autoload Config',
+			Default = isfile(self.Folder .. '/settings/autoload.txt'),
+		})
+		
+		local function updateAutoloadState(val)
+			if val then
+				local name = Options.SaveManager_ConfigList.Value
+				if name then
+					writefile(self.Folder .. '/settings/autoload.txt', name)
+				end
+			else
+				if isfile(self.Folder .. '/settings/autoload.txt') then
+					delfile(self.Folder .. '/settings/autoload.txt')
+				end
+			end
+		end
+		
+		Toggles.SaveManager_Autoload:OnChanged(updateAutoloadState)
 
 		SaveManager.AutoloadLabel = section:AddLabel('Current autoload config: none', true)
 
 		if isfile(self.Folder .. '/settings/autoload.txt') then
 			local name = readfile(self.Folder .. '/settings/autoload.txt')
 			SaveManager.AutoloadLabel:SetText('Current autoload config: ' .. name)
+		else
+			SaveManager.AutoloadLabel:SetText('Current autoload config: none')
 		end
+
+		SaveManager:SetIgnoreIndexes({ 'SaveManager_ConfigList', 'SaveManager_ConfigName', 'SaveManager_Autoload' })
+	end
 
 	SaveManager:BuildFolderTree()
 end
